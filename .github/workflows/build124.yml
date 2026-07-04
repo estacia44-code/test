@@ -1,0 +1,114 @@
+name: Build Reynard IPA 234
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 360
+
+    env:
+      HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unzip Project
+        run: |
+          unzip -q reynard-browser-fixed.zip
+
+          PROJECT_DIR=$(find . -mindepth 1 -maxdepth 1 -type d \
+            ! -name ".git" \
+            ! -name ".github" | head -1)
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+
+          echo "Detected project:"
+          echo "$PROJECT_DIR"
+
+          ls -la "$PROJECT_DIR"
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app || true
+          xcodebuild -version
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Dependencies
+        run: |
+          brew install ldid ccache || true
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo
+            ~/.mozbuild
+          key: cargo-${{ runner.os }}
+
+      - name: Make Scripts Executable
+        run: |
+          cd "$PROJECT_DIR"
+          chmod +x tools/development/*.sh || true
+          chmod +x tools/release/*.sh || true
+
+      - name: Download Gecko
+        run: |
+          cd "$PROJECT_DIR"
+          zsh tools/development/update-gecko.sh
+
+      - name: Apply Patch
+        run: |
+          cd "$PROJECT_DIR"
+          zsh tools/development/apply-patches.sh
+
+      - name: Build Gecko
+        run: |
+          cd "$PROJECT_DIR"
+          ./tools/development/build-gecko.sh
+
+      - name: Build App
+        run: |
+          cd "$PROJECT_DIR"
+          ./tools/release/build-app.sh
+
+      - name: Create IPA
+        run: |
+          cd "$PROJECT_DIR"
+          ./tools/release/create-ipa.sh
+
+      - name: Show IPA
+        if: always()
+        run: |
+          find "$PROJECT_DIR" -name "*.ipa"
+
+      - name: Upload IPA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Reynard-IPA
+          path: |
+            ${{ env.PROJECT_DIR }}/**/*.ipa
+          if-no-files-found: warn
+
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BuildLogs
+          path: |
+            ${{ env.PROJECT_DIR }}/**/*.log
+            ~/Library/Logs/**
+          if-no-files-found: ignore
