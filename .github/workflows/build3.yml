@@ -1,0 +1,79 @@
+name: Build Reynard IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unzip Project
+        run: |
+          unzip -q reynard-browser-fixed.zip
+
+          PROJECT_DIR=$(find . -mindepth 1 -maxdepth 1 -type d \
+            ! -name ".git" \
+            ! -name ".github" | head -1)
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+
+          echo "Project directory: $PROJECT_DIR"
+          ls -la "$PROJECT_DIR"
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app || true
+          xcodebuild -version
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: |
+          brew update
+          brew install ldid ccache
+
+      - name: Build
+        run: |
+          cd "$PROJECT_DIR"
+
+          chmod +x tools/development/*.sh
+          chmod +x tools/release/*.sh
+
+          zsh tools/development/update-gecko.sh
+          zsh tools/development/apply-patches.sh
+          ./tools/development/build-gecko.sh
+          ./tools/release/build-app.sh
+          ./tools/release/create-ipa.sh
+
+      - name: Find IPA
+        run: |
+          find "$PROJECT_DIR" -name "*.ipa"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Reynard-IPA
+          path: |
+            ${{ env.PROJECT_DIR }}/**/*.ipa
+
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Logs
+          path: |
+            ${{ env.PROJECT_DIR }}/**/*.log
