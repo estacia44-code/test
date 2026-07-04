@@ -1,0 +1,82 @@
+name: Build Reynard IPA 2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 360
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: reynard-browser-fixed
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unzip project
+        run: |
+          unzip -q reynard-browser-fixed.zip
+          ls -la
+          ls -la reynard-browser-fixed
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app || true
+          xcodebuild -version
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Homebrew packages
+        run: |
+          brew update
+          brew install ldid ccache
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache Gecko Sources
+        uses: actions/cache@v4
+        with:
+          path: |
+            reynard-browser-fixed/gecko-dev
+            ~/.mozbuild
+            ~/.cargo
+            ~/Library/Caches/Homebrew
+          key: gecko-${{ runner.os }}-${{ hashFiles('reynard-browser-fixed/tools/development/**') }}
+
+      - name: Make scripts executable
+        run: |
+          chmod +x tools/development/*.sh
+          chmod +x tools/release/*.sh
+
+      - name: Download Gecko
+        run: zsh tools/development/update-gecko.sh
+
+      - name: Apply Korean Patch
+        run: zsh tools/development/apply-patches.sh
+
+      - name: Build Gecko
+        run: ./tools/development/build-gecko.sh
+
+      - name: Build App
+        run: ./tools/release/build-app.sh
+
+      - name: Create IPA
+        run: ./tools/release/create-ipa.sh
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Reynard-IPA
+          path: |
+            reynard-browser-fixed/**/*.ipa
