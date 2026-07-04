@@ -1,0 +1,107 @@
+name: Build Reynard1231221 IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 360
+
+    env:
+      HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Extract Project
+        run: |
+          mkdir src
+          unzip -q reynard-browser-fixed.zip -d src
+
+          echo "===== Project Structure ====="
+          ls -la src
+          find src -maxdepth 2 -type d
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app || true
+          xcodebuild -version
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Dependencies
+        run: |
+          brew install ldid ccache || true
+
+      - name: Cache Mozilla Build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo
+            ~/.mozbuild
+          key: moz-${{ runner.os }}
+
+      - name: Make Scripts Executable
+        working-directory: src
+        run: |
+          chmod +x tools/development/*.sh
+          chmod +x tools/release/*.sh
+
+      - name: Download Gecko
+        working-directory: src
+        run: |
+          zsh tools/development/update-gecko.sh
+
+      - name: Apply Patches
+        working-directory: src
+        run: |
+          zsh tools/development/apply-patches.sh
+
+      - name: Build Gecko
+        working-directory: src
+        run: |
+          ./tools/development/build-gecko.sh
+
+      - name: Build App
+        working-directory: src
+        run: |
+          ./tools/release/build-app.sh
+
+      - name: Create IPA
+        working-directory: src
+        run: |
+          ./tools/release/create-ipa.sh
+
+      - name: Find IPA
+        if: always()
+        run: |
+          find src -name "*.ipa"
+
+      - name: Upload IPA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Reynard-IPA
+          path: src/**/*.ipa
+          if-no-files-found: warn
+
+      - name: Upload Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BuildLogs
+          path: |
+            src/**/*.log
+            ~/Library/Logs/**
+          if-no-files-found: ignore
